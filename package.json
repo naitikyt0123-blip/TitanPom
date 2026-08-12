@@ -1,0 +1,15 @@
+{
+  "name": "vip-gateway-bot",
+  "version": "1.0.0",
+  "description": "Telegram VIP Payment Bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "axios": "^1.6.8",
+    "mongodb": "^6.5.0",
+    "node-telegram-bot-api": "^0.65.0"
+  }
+}
