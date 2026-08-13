@@ -1,9 +1,9 @@
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const { MongoClient } = require('mongodb');
-require('./mongodbeditor.js');
+
 const botToken = "8856339700:AAGJe8lzxHr-TzGu_hfv8zmQS23gYGf8XE4";
-const adminId = "5291409360";
+const adminId = "7800515392";
 const mongoUrl = process.env.MONGO_URL; 
 
 let bot;
