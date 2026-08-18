@@ -6,7 +6,7 @@ const { MongoClient } = require('mongodb');
 // 1. AAPKE VARIABLES (YAHAN APNA DATA DAALEIN)
 // ==========================================
 const TOKEN = process.env.BOT_TOKEN || '8756543651:AAENlmZhViGgky4Cw8zc49nodWetkXFubkE'; 
-const ADMIN_CHAT_ID = parseInt(process.env.ADMIN_CHAT_ID || '5059892417); // Number format me likhein
+const ADMIN_CHAT_ID = parseInt(process.env.ADMIN_CHAT_ID || '5291409360); // Number format me likhein
 
 const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URI; // Railway ka automatic variable
 const PORT = process.env.PORT || 3000;
