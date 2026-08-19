@@ -8,11 +8,10 @@ const { MongoClient } = require('mongodb');
 const TOKEN = '8816839787:AAF4WyIYIMgyhJhw7gXV8CT_1dlJFLE_B5w';
 const ADMIN_CHAT_ID = 5059892417;
 
-// Railway automatically provides MONGO_URL or MONGODB_URI
 const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URI; 
 const PORT = process.env.PORT || 3000;
 
-// Express setup for Railway 24/7 Hosting (Prevents Port Binding Crash)
+// Express setup for Railway
 const app = express();
 app.get('/', (req, res) => res.send('VIP Gateway Bot is Running successfully!'));
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
@@ -20,13 +19,12 @@ app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
 // Bot setup
 const bot = new TelegramBot(TOKEN, { polling: true });
 
-// Error handling for Bot Polling to prevent crashes
 bot.on('polling_error', (error) => {
     console.error('Polling Error:', error.message);
 });
 
 // ==========================================
-// 2. MONGODB SETUP (ashspreader collection)
+// 2. MONGODB SETUP
 // ==========================================
 let db;
 let settingsCollection;
@@ -35,7 +33,7 @@ let usersCollection;
 async function initDB() {
     try {
         if (!MONGO_URL) {
-            console.error('❌ MongoDB URL is missing in Railway Variables!');
+            console.error('❌ MongoDB URL is missing!');
             return;
         }
         const client = new MongoClient(MONGO_URL);
@@ -44,15 +42,15 @@ async function initDB() {
         
         settingsCollection = db.collection('ashspreader_settings');
         usersCollection = db.collection('ashspreader_users');
-        console.log('✅ MongoDB Database Connected Successfully!');
+        console.log('✅ MongoDB Connected!');
     } catch (err) {
-        console.error('❌ MongoDB Connection Error:', err.message);
+        console.error('❌ MongoDB Error:', err.message);
     }
 }
 initDB();
 
 // ==========================================
-// 3. ADMIN STATE & HELPER FUNCTIONS
+// 3. SETTINGS FUNCTIONS
 // ==========================================
 let adminState = null;
 
@@ -60,7 +58,6 @@ async function getSettings() {
     if (!settingsCollection) return {};
     let settings = await settingsCollection.findOne({ id: 1 });
     if (!settings) {
-        // Default Settings
         settings = { 
             id: 1, 
             welcomeVideoFileId: null, 
@@ -82,14 +79,26 @@ async function updateSettings(updates) {
     }
 }
 
+// Helper function to send APK
+async function sendApkToUser(chatId) {
+    const settings = await getSettings();
+    if (settings.apkFileId) {
+        let options = { caption: settings.apkCaption || '' };
+        if (settings.apkCaptionEntities) options.caption_entities = JSON.stringify(settings.apkCaptionEntities);
+        
+        bot.sendDocument(chatId, settings.apkFileId, options).catch(err => console.error(err.message));
+    } else {
+        bot.sendMessage(chatId, '⚠️ Currently no APK is available. Please contact admin.').catch(err => console.error(err.message));
+    }
+}
+
 // ==========================================
 // 4. COMMANDS & BOT LOGIC (/start)
 // ==========================================
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
-    adminState = null; // Reset admin state on /start
+    adminState = null;
 
-    // Save user if new
     if (usersCollection) {
         const userExists = await usersCollection.findOne({ chatId });
         if (!userExists) {
@@ -97,36 +106,52 @@ bot.onText(/\/start/, async (msg) => {
         }
     }
 
-    // AGAR ADMIN HAI -> Dashboard
     if (chatId === ADMIN_CHAT_ID) {
         return sendAdminMenu(chatId);
     }
 
-    // AGAR NORMAL USER HAI -> Welcome Message/Video
     const settings = await getSettings();
+    
+    // 1. Reply Keyboard (Bottom Keyboard with Green Success indicator)
+    const replyKeyboard = {
+        reply_markup: {
+            keyboard: [[{ text: '🟢 Download Play Store Apk' }]],
+            resize_keyboard: true,
+            is_persistent: true
+        }
+    };
+
+    // Phele ek chhota message bhejte hain taaki bottom keyboard activate ho jaye
+    await bot.sendMessage(chatId, "Welcome! Loading your menu...", replyKeyboard).catch(err => console.error(err.message));
+
+    // 2. Inline Keyboard setup
     const inlineKeyboard = [];
     
+    // Demo Videos Link
     if (settings.demoLink) inlineKeyboard.push([{ text: '📺 Demo Videos', url: settings.demoLink }]);
+    
+    // Get Apk Button
     inlineKeyboard.push([{ text: '📥 Get Apk', callback_data: 'get_apk' }]);
+    
+    // Need Help & How To Use (Bold feeling text)
+    inlineKeyboard.push([
+        { text: '🆘 𝗡𝗲𝗲𝗱 𝗛𝗲𝗹𝗽?', callback_data: 'get_apk' }, 
+        { text: '❓ 𝗛𝗼𝘄 𝗧𝗼 𝗨𝘀𝗲?', callback_data: 'get_apk' }
+    ]);
 
-    const replyMarkup = { inline_keyboard: inlineKeyboard };
-    const options = { reply_markup: replyMarkup };
+    const options = { reply_markup: { inline_keyboard: inlineKeyboard } };
 
     if (settings.welcomeVideoFileId) {
-        // Video with attached caption
         options.caption = settings.welcomeMessage || '';
         if (settings.welcomeEntities) options.caption_entities = JSON.stringify(settings.welcomeEntities);
-        
-        bot.sendVideo(chatId, settings.welcomeVideoFileId, options).catch(err => console.error("Send Video Error:", err.message));
+        bot.sendVideo(chatId, settings.welcomeVideoFileId, options).catch(err => console.error(err.message));
     } else {
-        // Only Text Message
         if (settings.welcomeEntities) options.entities = JSON.stringify(settings.welcomeEntities);
-        
-        bot.sendMessage(chatId, settings.welcomeMessage || 'Welcome!', options).catch(err => console.error("Send Message Error:", err.message));
+        bot.sendMessage(chatId, settings.welcomeMessage || 'Welcome!', options).catch(err => console.error(err.message));
     }
 });
 
-// Admin Dashboard Menu
+// Admin Dashboard
 function sendAdminMenu(chatId) {
     const keyboard = {
         inline_keyboard: [
@@ -138,7 +163,7 @@ function sendAdminMenu(chatId) {
             [{ text: '👥 Check Total Users', callback_data: 'admin_check_users' }]
         ]
     };
-    bot.sendMessage(chatId, '🛠 *Welcome Admin!*\nYahan se aap apna bot control kar sakte hain:\n\n_(Naya data automatic purane ko replace kar dega)_', { parse_mode: 'Markdown', reply_markup: keyboard }).catch(err => console.error(err.message));
+    bot.sendMessage(chatId, '🛠 *Admin Menu*\n\nNaya data automatically purane ko delete karke save ho jayega.', { parse_mode: 'Markdown', reply_markup: keyboard }).catch(err => console.error(err.message));
 }
 
 // ==========================================
@@ -147,34 +172,23 @@ function sendAdminMenu(chatId) {
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
-    const settings = await getSettings();
 
-    // USER: Get Apk Button
+    // All these buttons will send the APK
     if (data === 'get_apk') {
-        if (settings.apkFileId) {
-            let options = { caption: settings.apkCaption || '' };
-            if (settings.apkCaptionEntities) options.caption_entities = JSON.stringify(settings.apkCaptionEntities);
-            
-            bot.sendDocument(chatId, settings.apkFileId, options).catch(err => console.error("Send APK Error:", err.message));
-        } else {
-            bot.sendMessage(chatId, '⚠️ Currently no APK is available. Please contact admin.').catch(err => console.error(err.message));
-        }
+        await sendApkToUser(chatId);
         return bot.answerCallbackQuery(query.id);
     }
 
-    // ADMIN: Button Clicks
-    if (chatId !== ADMIN_CHAT_ID) {
-        return bot.answerCallbackQuery(query.id, { text: 'You are not Admin!', show_alert: true });
-    }
+    if (chatId !== ADMIN_CHAT_ID) return bot.answerCallbackQuery(query.id, { text: 'Not Admin!', show_alert: true });
 
     switch(data) {
         case 'admin_change_apk':
             adminState = 'WAITING_APK';
-            bot.sendMessage(chatId, '📤 *Send me the new APK file now.*\n_(Sirf Document file bhejein)_', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '📤 *Send me the new APK file now.*', { parse_mode: 'Markdown' });
             break;
         case 'admin_change_welcome_msg':
             adminState = 'WAITING_WELCOME_MSG';
-            bot.sendMessage(chatId, '📝 *Send me the new Welcome Message.*\n\n💡 _Aap fonts (Bold, Italic, Quotes) lagakar bhejenge, main waisa hi save karunga._', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '📝 *Send me the new Welcome Message.*', { parse_mode: 'Markdown' });
             break;
         case 'admin_change_welcome_video':
             adminState = 'WAITING_VIDEO';
@@ -182,16 +196,16 @@ bot.on('callback_query', async (query) => {
             break;
         case 'admin_change_apk_caption':
             adminState = 'WAITING_APK_CAPTION';
-            bot.sendMessage(chatId, '✍️ *Send me the new Apk Caption.*\n\n💡 _Aap text ko bold/italic karke bhej sakte hain._', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '✍️ *Send me the new Apk Caption.*', { parse_mode: 'Markdown' });
             break;
         case 'admin_change_demo_link':
             adminState = 'WAITING_DEMO_LINK';
-            bot.sendMessage(chatId, '🔗 *Send me the new Demo Channel Link.*\n_(Example: https://t.me/yourchannel)_', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '🔗 *Send me the new Demo Channel Link.*\n_(Jaise hi aap link bhejenge, user ko Demo Videos button par yahi link open hoga)_', { parse_mode: 'Markdown' });
             break;
         case 'admin_check_users':
             if (usersCollection) {
                 const count = await usersCollection.countDocuments();
-                bot.sendMessage(chatId, `👥 *Total Users on Bot:* ${count}`, { parse_mode: 'Markdown' });
+                bot.sendMessage(chatId, `👥 *Total Users:* ${count}`, { parse_mode: 'Markdown' });
             }
             break;
     }
@@ -199,19 +213,24 @@ bot.on('callback_query', async (query) => {
 });
 
 // ==========================================
-// 6. ADMIN MESSAGES / MEDIA HANDLER
+// 6. GENERAL MESSAGE HANDLER (TEXT & MEDIA)
 // ==========================================
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     
-    // Ignore non-admins, undefined states, or commands
+    // Normal user clicking the bottom Reply Keyboard button
+    if (msg.text === '🟢 Download Play Store Apk') {
+        return await sendApkToUser(chatId);
+    }
+
+    // Ignore non-admins or undefined states
     if (chatId !== ADMIN_CHAT_ID || !adminState) return;
     if (msg.text && msg.text.startsWith('/')) return; 
 
     try {
         if (adminState === 'WAITING_APK' && msg.document) {
             await updateSettings({ apkFileId: msg.document.file_id });
-            bot.sendMessage(chatId, '✅ *APK Updated Successfully!*\nPurani apk auto-replace ho gayi hai.', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '✅ *APK Updated Successfully!*', { parse_mode: 'Markdown' });
             adminState = null;
         } 
         else if (adminState === 'WAITING_VIDEO' && msg.video) {
@@ -224,7 +243,7 @@ bot.on('message', async (msg) => {
             const entities = msg.entities || msg.caption_entities || null; 
             
             await updateSettings({ welcomeMessage: text, welcomeEntities: entities });
-            bot.sendMessage(chatId, '✅ *Welcome Message Updated Successfully!*\n_Aapki exact formatting save kar li gayi hai._', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '✅ *Welcome Message Updated!*', { parse_mode: 'Markdown' });
             adminState = null;
         }
         else if (adminState === 'WAITING_APK_CAPTION' && (msg.text || msg.caption)) {
@@ -232,19 +251,19 @@ bot.on('message', async (msg) => {
             const entities = msg.entities || msg.caption_entities || null;
             
             await updateSettings({ apkCaption: text, apkCaptionEntities: entities });
-            bot.sendMessage(chatId, '✅ *APK Caption Updated Successfully!*', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '✅ *APK Caption Updated!*', { parse_mode: 'Markdown' });
             adminState = null;
         }
         else if (adminState === 'WAITING_DEMO_LINK' && msg.text) {
             await updateSettings({ demoLink: msg.text });
-            bot.sendMessage(chatId, '✅ *Demo Link Updated Successfully!*', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '✅ *Demo Link Updated! Ab Demo Videos button par click karne se user directly is link par jayega.*', { parse_mode: 'Markdown' });
             adminState = null;
         }
         else {
-            bot.sendMessage(chatId, '❌ Wrong format. Please send the correct file/text according to the button you clicked, or send /start to cancel.');
+            bot.sendMessage(chatId, '❌ Wrong format. Please try again or send /start to cancel.');
         }
     } catch (err) {
-        console.error("Handler Error:", err.message);
+        console.error(err.message);
         bot.sendMessage(chatId, '❌ Error updating data. Please try again.');
     }
 });
