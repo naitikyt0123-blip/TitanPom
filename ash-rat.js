@@ -50,7 +50,7 @@ async function initDB() {
 initDB();
 
 // ==========================================
-// 3. SETTINGS FUNCTIONS
+// 3. SETTINGS & HELPER FUNCTIONS
 // ==========================================
 let adminState = null;
 
@@ -79,16 +79,26 @@ async function updateSettings(updates) {
     }
 }
 
-// Helper function to send APK
-async function sendApkToUser(chatId) {
+// Function to send APK file to the user
+async function sendApkToUser(chatId, withReplyKeyboard = false) {
     const settings = await getSettings();
+    
     if (settings.apkFileId) {
         let options = { caption: settings.apkCaption || '' };
         if (settings.apkCaptionEntities) options.caption_entities = JSON.stringify(settings.apkCaptionEntities);
         
-        bot.sendDocument(chatId, settings.apkFileId, options).catch(err => console.error(err.message));
+        // Add Reply Keyboard to the APK message if required
+        if (withReplyKeyboard) {
+            options.reply_markup = {
+                keyboard: [[{ text: 'Download Play Store Apk', style: 'success' }]],
+                resize_keyboard: true,
+                is_persistent: true
+            };
+        }
+
+        await bot.sendDocument(chatId, settings.apkFileId, options).catch(err => console.error(err.message));
     } else {
-        bot.sendMessage(chatId, '⚠️ Currently no APK is available. Please contact admin.').catch(err => console.error(err.message));
+        await bot.sendMessage(chatId, '⚠️ Currently no APK is available. Please contact admin.').catch(err => console.error(err.message));
     }
 }
 
@@ -99,6 +109,7 @@ bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     adminState = null;
 
+    // Register User
     if (usersCollection) {
         const userExists = await usersCollection.findOne({ chatId });
         if (!userExists) {
@@ -112,37 +123,38 @@ bot.onText(/\/start/, async (msg) => {
 
     const settings = await getSettings();
     
-    // Inline Keyboard setup with Style properties
-    const inlineKeyboard = [];
+    // --- STEP 1: SEND WELCOME MESSAGE/VIDEO ---
+    const welcomeInlineKeyboard = [];
+    if (settings.demoLink) welcomeInlineKeyboard.push([{ text: '📺 Demo Videos', url: settings.demoLink }]);
     
-    // Custom v9.4 Style attribute button ("Green Success")
-    inlineKeyboard.push([
-        { 
-            text: '🟢 Download Play Store Apk', 
-            callback_data: 'get_apk',
-            style: 'success' // Using the new API feature for green success color
-        }
-    ]);
+    welcomeInlineKeyboard.push([{ 
+        text: 'Download Play Store Apk', 
+        callback_data: 'get_apk', 
+        style: 'success' 
+    }]);
 
-    // Demo Videos Link
-    if (settings.demoLink) inlineKeyboard.push([{ text: '📺 Demo Videos', url: settings.demoLink }]);
-    
-    // Bold font buttons for Help and Use
-    inlineKeyboard.push([
-        { text: '𝗡𝗲𝗲𝗱 𝗛𝗲𝗹𝗽?', callback_data: 'get_apk' }, 
-        { text: '𝗛𝗼𝘄 𝗧𝗼 𝗨𝘀𝗲?', callback_data: 'get_apk' }
-    ]);
-
-    const options = { reply_markup: { inline_keyboard: inlineKeyboard } };
+    const welcomeOptions = { reply_markup: { inline_keyboard: welcomeInlineKeyboard } };
 
     if (settings.welcomeVideoFileId) {
-        options.caption = settings.welcomeMessage || '';
-        if (settings.welcomeEntities) options.caption_entities = JSON.stringify(settings.welcomeEntities);
-        bot.sendVideo(chatId, settings.welcomeVideoFileId, options).catch(err => console.error(err.message));
+        welcomeOptions.caption = settings.welcomeMessage || '';
+        if (settings.welcomeEntities) welcomeOptions.caption_entities = JSON.stringify(settings.welcomeEntities);
+        await bot.sendVideo(chatId, settings.welcomeVideoFileId, welcomeOptions).catch(err => console.error(err.message));
     } else {
-        if (settings.welcomeEntities) options.entities = JSON.stringify(settings.welcomeEntities);
-        bot.sendMessage(chatId, settings.welcomeMessage || 'Welcome!', options).catch(err => console.error(err.message));
+        if (settings.welcomeEntities) welcomeOptions.entities = JSON.stringify(settings.welcomeEntities);
+        await bot.sendMessage(chatId, settings.welcomeMessage || 'Welcome!', welcomeOptions).catch(err => console.error(err.message));
     }
+
+    // --- STEP 2: SEND APK FILE IMMEDIATELY ---
+    // Passing true to attach the bottom Reply Keyboard with this APK message
+    await sendApkToUser(chatId, true); 
+
+    // --- STEP 3: SEND "Need Help?" MESSAGE ---
+    const helpOptions = {
+        reply_markup: {
+            inline_keyboard: [[{ text: 'How To Use?', callback_data: 'get_apk' }]]
+        }
+    };
+    await bot.sendMessage(chatId, '*Need Help?*', { parse_mode: 'Markdown', ...helpOptions }).catch(err => console.error(err.message));
 });
 
 // Admin Dashboard
@@ -154,10 +166,11 @@ function sendAdminMenu(chatId) {
             [{ text: '🎥 Change Welcome Video', callback_data: 'admin_change_welcome_video' }],
             [{ text: '✍️ Change Apk Caption', callback_data: 'admin_change_apk_caption' }],
             [{ text: '🔗 Change Demo Channel Link', callback_data: 'admin_change_demo_link' }],
+            [{ text: '📢 Broadcast', callback_data: 'admin_broadcast' }],
             [{ text: '👥 Check Total Users', callback_data: 'admin_check_users' }]
         ]
     };
-    bot.sendMessage(chatId, '🛠 *Admin Menu*\n\nNaya data automatically purane ko delete karke save ho jayega.', { parse_mode: 'Markdown', reply_markup: keyboard }).catch(err => console.error(err.message));
+    bot.sendMessage(chatId, '🛠 *Admin Menu*\n\nYahan se aap bot ko control kar sakte hain.', { parse_mode: 'Markdown', reply_markup: keyboard }).catch(err => console.error(err.message));
 }
 
 // ==========================================
@@ -167,9 +180,9 @@ bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
 
-    // "Download Play Store Apk", "Need Help?", and "How To Use?" will trigger this
+    // "Download Play Store Apk" and "How To Use?" will trigger this
     if (data === 'get_apk') {
-        await sendApkToUser(chatId);
+        await sendApkToUser(chatId, false); // Don't attach reply keyboard again, just send file
         return bot.answerCallbackQuery(query.id);
     }
 
@@ -195,7 +208,11 @@ bot.on('callback_query', async (query) => {
             break;
         case 'admin_change_demo_link':
             adminState = 'WAITING_DEMO_LINK';
-            bot.sendMessage(chatId, '🔗 *Send me the new channel link.*\n_(Jo link aap denge, Demo Videos button par click karne se user directly wahi redirect hoga)_', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '🔗 *Send me the new channel link.*', { parse_mode: 'Markdown' });
+            break;
+        case 'admin_broadcast':
+            adminState = 'WAITING_BROADCAST';
+            bot.sendMessage(chatId, '📢 *Send the message you want to broadcast.*\n_(You can send Text, Image, Video, or File. It will be sent exactly as you format it)_', { parse_mode: 'Markdown' });
             break;
         case 'admin_check_users':
             if (usersCollection) {
@@ -208,15 +225,42 @@ bot.on('callback_query', async (query) => {
 });
 
 // ==========================================
-// 6. GENERAL MESSAGE HANDLER (TEXT & MEDIA)
+// 6. GENERAL MESSAGE HANDLER
 // ==========================================
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     
+    // Normal user clicking the bottom Reply Keyboard button
+    if (msg.text === 'Download Play Store Apk') {
+        return await sendApkToUser(chatId, false);
+    }
+
     if (chatId !== ADMIN_CHAT_ID || !adminState) return;
     if (msg.text && msg.text.startsWith('/')) return; 
 
     try {
+        // --- BROADCAST LOGIC ---
+        if (adminState === 'WAITING_BROADCAST') {
+            bot.sendMessage(chatId, '⏳ *Broadcast started! Please wait...*', { parse_mode: 'Markdown' });
+            adminState = null; // Reset state immediately
+
+            const users = await usersCollection.find({}).toArray();
+            let success = 0;
+            let failed = 0;
+
+            for (let user of users) {
+                try {
+                    // Copy message sends exact format, media, fonts directly
+                    await bot.copyMessage(user.chatId, chatId, msg.message_id);
+                    success++;
+                } catch (error) {
+                    failed++;
+                }
+            }
+            return bot.sendMessage(chatId, `✅ *Broadcast Finished!*\n\n🚀 Sent to: ${success}\n❌ Failed (Blocked bot): ${failed}`, { parse_mode: 'Markdown' });
+        }
+
+        // --- OTHER ADMIN UPDATES ---
         if (adminState === 'WAITING_APK' && msg.document) {
             await updateSettings({ apkFileId: msg.document.file_id });
             bot.sendMessage(chatId, '✅ *APK Updated Successfully!*', { parse_mode: 'Markdown' });
@@ -245,7 +289,7 @@ bot.on('message', async (msg) => {
         }
         else if (adminState === 'WAITING_DEMO_LINK' && msg.text) {
             await updateSettings({ demoLink: msg.text });
-            bot.sendMessage(chatId, '✅ *Demo Link Updated! Demo Videos button ab is link par open hoga.*', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '✅ *Demo Link Updated!*', { parse_mode: 'Markdown' });
             adminState = null;
         }
         else {
