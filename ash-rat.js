@@ -3,7 +3,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const { MongoClient } = require('mongodb');
 
 // ==========================================
-// 1. CREDENTIALS (FIXED)
+// 1. CREDENTIALS
 // ==========================================
 const TOKEN = '8816839787:AAF4WyIYIMgyhJhw7gXV8CT_1dlJFLE_B5w';
 const ADMIN_CHAT_ID = 5059892417;
@@ -11,7 +11,7 @@ const ADMIN_CHAT_ID = 5059892417;
 const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URI; 
 const PORT = process.env.PORT || 3000;
 
-// Express setup for Railway
+// Express setup for Railway (Port Binding)
 const app = express();
 app.get('/', (req, res) => res.send('VIP Gateway Bot is Running successfully!'));
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
@@ -112,31 +112,25 @@ bot.onText(/\/start/, async (msg) => {
 
     const settings = await getSettings();
     
-    // 1. Reply Keyboard (Bottom Keyboard with Green Success indicator)
-    const replyKeyboard = {
-        reply_markup: {
-            keyboard: [[{ text: '🟢 Download Play Store Apk' }]],
-            resize_keyboard: true,
-            is_persistent: true
-        }
-    };
-
-    // Phele ek chhota message bhejte hain taaki bottom keyboard activate ho jaye
-    await bot.sendMessage(chatId, "Welcome! Loading your menu...", replyKeyboard).catch(err => console.error(err.message));
-
-    // 2. Inline Keyboard setup
+    // Inline Keyboard setup with Style properties
     const inlineKeyboard = [];
     
+    // Custom v9.4 Style attribute button ("Green Success")
+    inlineKeyboard.push([
+        { 
+            text: '🟢 Download Play Store Apk', 
+            callback_data: 'get_apk',
+            style: 'success' // Using the new API feature for green success color
+        }
+    ]);
+
     // Demo Videos Link
     if (settings.demoLink) inlineKeyboard.push([{ text: '📺 Demo Videos', url: settings.demoLink }]);
     
-    // Get Apk Button
-    inlineKeyboard.push([{ text: '📥 Get Apk', callback_data: 'get_apk' }]);
-    
-    // Need Help & How To Use (Bold feeling text)
+    // Bold font buttons for Help and Use
     inlineKeyboard.push([
-        { text: '🆘 𝗡𝗲𝗲𝗱 𝗛𝗲𝗹𝗽?', callback_data: 'get_apk' }, 
-        { text: '❓ 𝗛𝗼𝘄 𝗧𝗼 𝗨𝘀𝗲?', callback_data: 'get_apk' }
+        { text: '𝗡𝗲𝗲𝗱 𝗛𝗲𝗹𝗽?', callback_data: 'get_apk' }, 
+        { text: '𝗛𝗼𝘄 𝗧𝗼 𝗨𝘀𝗲?', callback_data: 'get_apk' }
     ]);
 
     const options = { reply_markup: { inline_keyboard: inlineKeyboard } };
@@ -173,12 +167,13 @@ bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
 
-    // All these buttons will send the APK
+    // "Download Play Store Apk", "Need Help?", and "How To Use?" will trigger this
     if (data === 'get_apk') {
         await sendApkToUser(chatId);
         return bot.answerCallbackQuery(query.id);
     }
 
+    // Admin validations
     if (chatId !== ADMIN_CHAT_ID) return bot.answerCallbackQuery(query.id, { text: 'Not Admin!', show_alert: true });
 
     switch(data) {
@@ -200,7 +195,7 @@ bot.on('callback_query', async (query) => {
             break;
         case 'admin_change_demo_link':
             adminState = 'WAITING_DEMO_LINK';
-            bot.sendMessage(chatId, '🔗 *Send me the new Demo Channel Link.*\n_(Jaise hi aap link bhejenge, user ko Demo Videos button par yahi link open hoga)_', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '🔗 *Send me the new channel link.*\n_(Jo link aap denge, Demo Videos button par click karne se user directly wahi redirect hoga)_', { parse_mode: 'Markdown' });
             break;
         case 'admin_check_users':
             if (usersCollection) {
@@ -218,12 +213,6 @@ bot.on('callback_query', async (query) => {
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     
-    // Normal user clicking the bottom Reply Keyboard button
-    if (msg.text === '🟢 Download Play Store Apk') {
-        return await sendApkToUser(chatId);
-    }
-
-    // Ignore non-admins or undefined states
     if (chatId !== ADMIN_CHAT_ID || !adminState) return;
     if (msg.text && msg.text.startsWith('/')) return; 
 
@@ -256,7 +245,7 @@ bot.on('message', async (msg) => {
         }
         else if (adminState === 'WAITING_DEMO_LINK' && msg.text) {
             await updateSettings({ demoLink: msg.text });
-            bot.sendMessage(chatId, '✅ *Demo Link Updated! Ab Demo Videos button par click karne se user directly is link par jayega.*', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '✅ *Demo Link Updated! Demo Videos button ab is link par open hoga.*', { parse_mode: 'Markdown' });
             adminState = null;
         }
         else {
